@@ -3,4 +3,8 @@ venv/
 __pycache__/
 .env
 /envato_previews/
+/envato_previews*
+/envato_previews
+envato_previews
+footages
 queries.txt
