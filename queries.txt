@@ -1,5 +1,1 @@
-Sahara Desert 50
-Spring 30
-Cascade
-Fire
-Light
+rain 10

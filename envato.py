@@ -35,6 +35,7 @@ DEFAULT_OUTPUT_DIR = ROOT_DIR / "footages"
 DEFAULT_COUNT = 30
 DEFAULT_WORKERS = 5
 ITEMS_PER_PAGE_ESTIMATE = 40
+MAX_SEARCH_PAGES = 200
 PROFILE_PATTERN = "puppeteer_dev_chrome_profile-*"
 REQUEST_TIMEOUT = 1.0
 SEARCH_URL_TEMPLATE = (
@@ -167,15 +168,20 @@ def find_video_items(value: Any) -> list[dict[str, Any]]:
     return found
 
 
+def is_watermarked_preview(url: str) -> bool:
+    """Reject Envato preview assets whose filename explicitly marks a watermark."""
+    return "watermarked_preview.mp4" in url.casefold()
+
+
 async def collect_query(page: Page, task: QueryTask) -> list[dict[str, Any]]:
     search_url = SEARCH_URL_TEMPLATE.format(quote_plus(task.query))
     await page.goto(search_url, wait_until="domcontentloaded", timeout=60_000)
     endpoint = page.url.replace("/search?", "/search.data?", 1)
     query_string = page.url.split("?", 1)[1]
     collected: dict[str, dict[str, Any]] = {}
-    max_pages = max(2, (task.count + ITEMS_PER_PAGE_ESTIMATE - 1) // ITEMS_PER_PAGE_ESTIMATE + 2)
+    filtered_watermarked = 0
 
-    for page_number in range(1, max_pages + 1):
+    for page_number in range(1, MAX_SEARCH_PAGES + 1):
         form = (
             f"actionType=loadMore&{query_string}&page={page_number}"
             "&queryInterpretation%5Blocation%5D=true"
@@ -194,6 +200,9 @@ async def collect_query(page: Page, task: QueryTask) -> list[dict[str, Any]]:
         for item in items:
             item_id = str(item.get("itemUuid") or "")
             preview_url = str(item.get("videoUrl") or "")
+            if item_id and preview_url and is_watermarked_preview(preview_url):
+                filtered_watermarked += 1
+                continue
             if item_id and preview_url and item_id not in collected:
                 collected[item_id] = {
                     "item_id": item_id,
@@ -205,7 +214,10 @@ async def collect_query(page: Page, task: QueryTask) -> list[dict[str, Any]]:
                 }
                 if len(collected) >= task.count:
                     break
-        print(f"  {task.query}: page {page_number}, links {len(collected)}/{task.count}")
+        print(
+            f"  {task.query}: page {page_number}, links {len(collected)}/{task.count}, "
+            f"watermarked skipped {filtered_watermarked}"
+        )
         if len(collected) >= task.count:
             break
         data = decoded.get("data", decoded) if isinstance(decoded, dict) else decoded
